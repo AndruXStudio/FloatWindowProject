@@ -1,0 +1,52 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Setup Android project
+        run: |
+          flutter create --org com.andrux --project-name float_window_project --platforms=android .
+          # label
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          # permissions
+          if ! grep -q 'SYSTEM_ALERT_WINDOW' "$MANIFEST"; then
+            sed -i 's/<application/<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"\/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"\/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"\/>\n    <uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' "$MANIFEST"
+          fi
+          # app label
+          sed -i 's/android:label="[^"]*"/android:label="悬浮窗项目"/' "$MANIFEST"
+          # NDK
+          GRADLE=android/app/build.gradle.kts
+          if [ -f "$GRADLE" ] && ! grep -q 'ndkVersion' "$GRADLE"; then
+            sed -i 's/android {/android {\n    ndkVersion = "27.0.12077973"/' "$GRADLE"
+          fi
+          # applicationId
+          if [ -f "$GRADLE" ]; then
+            sed -i 's/applicationId = ".*"/applicationId = "com.andrux.floatwindow"/' "$GRADLE"
+          fi
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
