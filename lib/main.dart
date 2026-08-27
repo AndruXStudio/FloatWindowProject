@@ -12,7 +12,7 @@ Future<void> main() async {
   runApp(const FloatWindowApp());
 }
 
-/// 悬浮窗独立入口（系统叠加层里跑的 UI）
+/// 系统悬浮窗入口（必须与插件约定的名字一致）
 @pragma('vm:entry-point')
 void overlayMain() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,9 +32,12 @@ class FloatWindowApp extends StatefulWidget {
 }
 
 class _FloatWindowAppState extends State<FloatWindowApp> {
+  final _scaffoldKey = GlobalKey<ScaffoldMessengerState>();
   ThemeMode _themeMode = ThemeMode.system;
   bool _haptics = true;
   bool _overlayRunning = false;
+  bool _busy = false;
+  String _status = '未启动';
 
   @override
   void initState() {
@@ -56,11 +59,22 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
     });
   }
 
+  void _toast(String msg) {
+    _scaffoldKey.currentState?.showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   Future<void> _refreshOverlayState() async {
     try {
       final active = await FlutterOverlayWindow.isActive();
-      if (mounted) setState(() => _overlayRunning = active);
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _overlayRunning = active;
+          _status = active ? '运行中' : '未启动';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _status = '状态读取失败');
+    }
   }
 
   Future<void> _setTheme(ThemeMode m) async {
@@ -77,44 +91,92 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
   }
 
   Future<bool> _ensurePermission() async {
-    final granted = await FlutterOverlayWindow.isPermissionGranted();
-    if (granted) return true;
-    final ok = await FlutterOverlayWindow.requestPermission();
-    return ok == true || await FlutterOverlayWindow.isPermissionGranted();
+    try {
+      if (await FlutterOverlayWindow.isPermissionGranted()) return true;
+    } catch (_) {}
+
+    // requestPermission 在部分机型上可能不返回，设置超时
+    try {
+      await FlutterOverlayWindow.requestPermission().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => false,
+      );
+    } catch (_) {}
+
+    try {
+      if (await FlutterOverlayWindow.isPermissionGranted()) return true;
+    } catch (_) {}
+
+    // 仍无权限则打开系统设置页
+    await openAppSettings();
+    await Future.delayed(const Duration(milliseconds: 600));
+    try {
+      return await FlutterOverlayWindow.isPermissionGranted();
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _startOverlay() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _status = '正在启动…';
+    });
     if (_haptics) HapticFeedback.mediumImpact();
-    final ok = await _ensurePermission();
-    if (!ok) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('需要「显示在其他应用上层」权限'),
-          action: SnackBarAction(label: '去设置', onPressed: openAppSettings),
-        ),
+
+    try {
+      final ok = await _ensurePermission();
+      if (!ok) {
+        _toast('请开启「显示在其他应用上层」权限后重试');
+        setState(() => _status = '缺少权限');
+        return;
+      }
+
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.closeOverlay();
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+
+      final started = await FlutterOverlayWindow.showOverlay(
+        height: 520,
+        width: 340,
+        alignment: OverlayAlignment.center,
+        flag: OverlayFlag.defaultFlag,
+        enableDrag: true,
+        positionGravity: PositionGravity.none,
+        overlayTitle: '悬浮窗项目',
+        overlayContent: 'Material 悬浮窗运行中',
       );
-      return;
+
+      await Future.delayed(const Duration(milliseconds: 400));
+      final active = await FlutterOverlayWindow.isActive();
+      setState(() {
+        _overlayRunning = active;
+        _status = active ? '运行中' : (started == true ? '已请求显示' : '启动失败');
+      });
+
+      if (!active) {
+        _toast('未能显示悬浮窗。请确认权限已开，并允许通知/前台服务。');
+      } else {
+        _toast('悬浮窗已启动，可切换到其他应用查看');
+      }
+    } catch (e, st) {
+      debugPrint('start overlay error: $e\n$st');
+      setState(() => _status = '错误');
+      _toast('启动失败: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (await FlutterOverlayWindow.isActive()) {
-      await FlutterOverlayWindow.closeOverlay();
-    }
-    await FlutterOverlayWindow.showOverlay(
-      height: 520,
-      width: 340,
-      alignment: OverlayAlignment.center,
-      flag: OverlayFlag.defaultFlag,
-      enableDrag: true,
-      positionGravity: PositionGravity.none,
-      overlayTitle: '悬浮窗项目',
-      overlayContent: 'Material 悬浮窗运行中',
-    );
-    await _refreshOverlayState();
   }
 
   Future<void> _stopOverlay() async {
     if (_haptics) HapticFeedback.lightImpact();
-    await FlutterOverlayWindow.closeOverlay();
+    try {
+      await FlutterOverlayWindow.closeOverlay();
+    } catch (e) {
+      _toast('关闭异常: $e');
+    }
     await _refreshOverlayState();
   }
 
@@ -122,6 +184,7 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '悬浮窗项目',
+      scaffoldMessengerKey: _scaffoldKey,
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
       theme: ThemeData(
@@ -164,7 +227,7 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '可叠在其他应用上方 · Material 3 · 可拖拽缩放',
+                          '可叠在其他应用上方 · Material 3',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                                 color: cs.onSurfaceVariant,
@@ -176,9 +239,15 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
                 ),
                 const SizedBox(height: 20),
                 FilledButton.icon(
-                  onPressed: _overlayRunning ? null : _startOverlay,
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: const Text('启动悬浮窗'),
+                  onPressed: (_busy || _overlayRunning) ? null : _startOverlay,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.open_in_new_rounded),
+                  label: Text(_busy ? '启动中…' : '启动悬浮窗'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
@@ -192,16 +261,21 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
                     minimumSize: const Size.fromHeight(52),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 Center(
                   child: Text(
-                    _overlayRunning ? '状态：运行中' : '状态：未启动',
+                    '状态：$_status',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: _overlayRunning ? cs.primary : cs.outline,
                         ),
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: _refreshOverlayState,
+                  child: const Text('刷新状态'),
+                ),
+                const SizedBox(height: 20),
                 Text('外观', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 SegmentedButton<ThemeMode>(
@@ -241,7 +315,7 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '首次启动请授予「显示在其他应用上层」权限。',
+                  '若点击无反应：请到系统设置 → 应用 → 悬浮窗项目 → 允许「显示在其他应用上层」，并允许通知。',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
@@ -255,7 +329,6 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
   }
 }
 
-/// 叠加层内的面板 UI
 class OverlayPanel extends StatefulWidget {
   const OverlayPanel({super.key});
 
@@ -279,11 +352,10 @@ class _OverlayPanelState extends State<OverlayPanel>
   bool _optA = true;
   bool _optB = false;
   bool _optC = true;
-
-  static const _minW = 260.0;
-  static const _minH = 280.0;
   double _w = 320;
   double _h = 460;
+  static const _minW = 260.0;
+  static const _minH = 280.0;
 
   @override
   void dispose() {
@@ -309,7 +381,6 @@ class _OverlayPanelState extends State<OverlayPanel>
 
   @override
   Widget build(BuildContext context) {
-    // 叠加层默认无完整 Theme，自建
     final theme = ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -328,16 +399,14 @@ class _OverlayPanelState extends State<OverlayPanel>
           animation: Listenable.merge([_launch, _expand]),
           builder: (context, _) {
             final scale = Curves.easeOutBack.transform(_launch.value);
-            final fade = Curves.easeOut.transform(_launch.value.clamp(0, 1));
+            final fade = Curves.easeOut.transform(_launch.value.clamp(0.0, 1.0));
             final expandT = Curves.easeOutCubic.transform(_expand.value);
 
             return Opacity(
               opacity: fade,
               child: Transform.scale(
                 scale: 0.88 + scale * 0.12,
-                alignment: Alignment.center,
                 child: Align(
-                  alignment: Alignment.center,
                   child: Material(
                     elevation: 10,
                     borderRadius: BorderRadius.circular(20),
@@ -349,7 +418,6 @@ class _OverlayPanelState extends State<OverlayPanel>
                           .clamp(_minH * 0.35, 640),
                       child: Column(
                         children: [
-                          // 标题栏
                           Container(
                             height: 48,
                             color: theme.colorScheme.surfaceContainerHighest,
@@ -381,7 +449,7 @@ class _OverlayPanelState extends State<OverlayPanel>
                           if (expandT > 0.05)
                             Expanded(
                               child: Opacity(
-                                opacity: expandT.clamp(0, 1),
+                                opacity: expandT.clamp(0.0, 1.0),
                                 child: Row(
                                   children: [
                                     NavigationRail(
@@ -428,7 +496,6 @@ class _OverlayPanelState extends State<OverlayPanel>
                                 ),
                               ),
                             ),
-                          // 缩放条
                           if (expandT > 0.5)
                             GestureDetector(
                               onHorizontalDragUpdate: (d) {
@@ -525,14 +592,12 @@ class _OverlayPanelState extends State<OverlayPanel>
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Icon(Icons.layers_rounded, size: 40, color: theme.colorScheme.primary),
+            Icon(Icons.layers_rounded,
+                size: 40, color: theme.colorScheme.primary),
             const SizedBox(height: 8),
             Text('悬浮窗项目', style: theme.textTheme.titleMedium),
             const SizedBox(height: 4),
-            Text(
-              '系统叠加层 · Material 3 · 动画开关',
-              style: theme.textTheme.bodySmall,
-            ),
+            Text('系统叠加层 · Material 3', style: theme.textTheme.bodySmall),
           ],
         );
     }
