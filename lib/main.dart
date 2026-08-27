@@ -138,7 +138,7 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
         await Future.delayed(const Duration(milliseconds: 300));
       }
 
-      final started = await FlutterOverlayWindow.showOverlay(
+      await FlutterOverlayWindow.showOverlay(
         height: 520,
         width: 340,
         alignment: OverlayAlignment.center,
@@ -149,15 +149,15 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
         overlayContent: 'Material 悬浮窗运行中',
       );
 
-      await Future.delayed(const Duration(milliseconds: 400));
+      await Future.delayed(const Duration(milliseconds: 500));
       final active = await FlutterOverlayWindow.isActive();
       setState(() {
         _overlayRunning = active;
-        _status = active ? '运行中' : (started == true ? '已请求显示' : '启动失败');
+        _status = active ? '运行中' : '已调用显示（若未见请检查权限/通知）';
       });
 
       if (!active) {
-        _toast('未能显示悬浮窗。请确认权限已开，并允许通知/前台服务。');
+        _toast('未能确认悬浮窗。请确认权限已开，并允许通知/前台服务。');
       } else {
         _toast('悬浮窗已启动，可切换到其他应用查看');
       }
