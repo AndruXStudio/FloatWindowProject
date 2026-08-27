@@ -139,8 +139,8 @@ class _FloatWindowAppState extends State<FloatWindowApp> {
       }
 
       await FlutterOverlayWindow.showOverlay(
-        height: 520,
-        width: 340,
+        height: 480,
+        width: 320,
         alignment: OverlayAlignment.center,
         flag: OverlayFlag.defaultFlag,
         enableDrag: true,
@@ -340,11 +340,11 @@ class _OverlayPanelState extends State<OverlayPanel>
     with TickerProviderStateMixin {
   late final AnimationController _launch = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 480),
+    duration: const Duration(milliseconds: 420),
   )..forward();
   late final AnimationController _expand = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 300),
+    duration: const Duration(milliseconds: 280),
     value: 1,
   );
 
@@ -352,10 +352,6 @@ class _OverlayPanelState extends State<OverlayPanel>
   bool _optA = true;
   bool _optB = false;
   bool _optC = true;
-  double _w = 320;
-  double _h = 460;
-  static const _minW = 260.0;
-  static const _minH = 280.0;
 
   @override
   void dispose() {
@@ -375,7 +371,9 @@ class _OverlayPanelState extends State<OverlayPanel>
 
   Future<void> _close() async {
     HapticFeedback.lightImpact();
-    await _launch.reverse();
+    try {
+      await _launch.reverse();
+    } catch (_) {}
     await FlutterOverlayWindow.closeOverlay();
   }
 
@@ -388,6 +386,7 @@ class _OverlayPanelState extends State<OverlayPanel>
         seedColor: const Color(0xFFD0BCFF),
         brightness: Brightness.dark,
       ),
+      visualDensity: VisualDensity.compact,
     );
 
     return MaterialApp(
@@ -398,94 +397,114 @@ class _OverlayPanelState extends State<OverlayPanel>
         body: AnimatedBuilder(
           animation: Listenable.merge([_launch, _expand]),
           builder: (context, _) {
-            final scale = Curves.easeOutBack.transform(_launch.value);
-            final fade = Curves.easeOut.transform(_launch.value.clamp(0.0, 1.0));
+            final fade =
+                Curves.easeOut.transform(_launch.value.clamp(0.0, 1.0));
+            final scale =
+                0.92 + Curves.easeOutBack.transform(_launch.value) * 0.08;
             final expandT = Curves.easeOutCubic.transform(_expand.value);
+            final expanded = expandT > 0.5;
 
             return Opacity(
               opacity: fade,
               child: Transform.scale(
-                scale: 0.88 + scale * 0.12,
-                child: Align(
+                scale: scale,
+                child: Center(
                   child: Material(
-                    elevation: 10,
-                    borderRadius: BorderRadius.circular(20),
+                    elevation: 12,
+                    borderRadius: BorderRadius.circular(16),
                     color: theme.colorScheme.surfaceContainerHigh,
                     clipBehavior: Clip.antiAlias,
                     child: SizedBox(
-                      width: _w.clamp(_minW, 420),
-                      height: (_minH + (_h - _minH) * expandT)
-                          .clamp(_minH * 0.35, 640),
+                      width: 300,
+                      height: expanded ? 420 : 52,
                       child: Column(
                         children: [
-                          Container(
-                            height: 48,
-                            color: theme.colorScheme.surfaceContainerHighest,
+                          // 标题栏：单行横排
+                          SizedBox(
+                            height: 52,
                             child: Row(
                               children: [
+                                const SizedBox(width: 4),
                                 IconButton(
+                                  visualDensity: VisualDensity.compact,
                                   icon: AnimatedRotation(
-                                    turns: expandT > 0.5 ? 0 : 0.5,
-                                    duration: const Duration(milliseconds: 250),
-                                    child: const Icon(Icons.expand_more_rounded),
+                                    turns: expanded ? 0 : 0.5,
+                                    duration:
+                                        const Duration(milliseconds: 220),
+                                    child:
+                                        const Icon(Icons.expand_more_rounded),
                                   ),
                                   onPressed: _toggleExpand,
                                 ),
                                 Expanded(
                                   child: Text(
                                     '悬浮窗项目',
-                                    style: theme.textTheme.titleSmall?.copyWith(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall
+                                        ?.copyWith(
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
                                 IconButton(
+                                  visualDensity: VisualDensity.compact,
                                   icon: const Icon(Icons.close_rounded),
                                   onPressed: _close,
                                 ),
                               ],
                             ),
                           ),
-                          if (expandT > 0.05)
+                          if (expanded)
                             Expanded(
                               child: Opacity(
                                 opacity: expandT.clamp(0.0, 1.0),
-                                child: Row(
+                                child: Column(
                                   children: [
-                                    NavigationRail(
-                                      selectedIndex: _page,
-                                      onDestinationSelected: (i) {
-                                        HapticFeedback.selectionClick();
-                                        setState(() => _page = i);
-                                      },
-                                      labelType:
-                                          NavigationRailLabelType.selected,
-                                      destinations: const [
-                                        NavigationRailDestination(
-                                          icon: Icon(Icons.home_outlined),
-                                          selectedIcon: Icon(Icons.home_rounded),
-                                          label: Text('主页'),
+                                    // 顶栏分段切换，不用侧栏
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 0, 12, 8),
+                                      child: SegmentedButton<int>(
+                                        segments: const [
+                                          ButtonSegment(
+                                            value: 0,
+                                            label: Text('主页'),
+                                            icon: Icon(Icons.home_rounded,
+                                                size: 18),
+                                          ),
+                                          ButtonSegment(
+                                            value: 1,
+                                            label: Text('选项'),
+                                            icon:
+                                                Icon(Icons.tune, size: 18),
+                                          ),
+                                          ButtonSegment(
+                                            value: 2,
+                                            label: Text('关于'),
+                                            icon: Icon(Icons.info_outline,
+                                                size: 18),
+                                          ),
+                                        ],
+                                        selected: {_page},
+                                        onSelectionChanged: (s) {
+                                          HapticFeedback.selectionClick();
+                                          setState(() => _page = s.first);
+                                        },
+                                        style: ButtonStyle(
+                                          visualDensity:
+                                              VisualDensity.compact,
+                                          textStyle:
+                                              WidgetStatePropertyAll(
+                                            theme.textTheme.labelMedium,
+                                          ),
                                         ),
-                                        NavigationRailDestination(
-                                          icon: Icon(Icons.tune_outlined),
-                                          selectedIcon: Icon(Icons.tune),
-                                          label: Text('选项'),
-                                        ),
-                                        NavigationRailDestination(
-                                          icon: Icon(Icons.info_outline),
-                                          selectedIcon: Icon(Icons.info_rounded),
-                                          label: Text('关于'),
-                                        ),
-                                      ],
-                                    ),
-                                    VerticalDivider(
-                                      width: 1,
-                                      color: theme.colorScheme.outlineVariant,
+                                      ),
                                     ),
                                     Expanded(
                                       child: AnimatedSwitcher(
-                                        duration:
-                                            const Duration(milliseconds: 260),
+                                        duration: const Duration(
+                                            milliseconds: 220),
                                         child: KeyedSubtree(
                                           key: ValueKey(_page),
                                           child: _body(theme),
@@ -493,29 +512,6 @@ class _OverlayPanelState extends State<OverlayPanel>
                                       ),
                                     ),
                                   ],
-                                ),
-                              ),
-                            ),
-                          if (expandT > 0.5)
-                            GestureDetector(
-                              onHorizontalDragUpdate: (d) {
-                                setState(() {
-                                  _w = (_w + d.delta.dx).clamp(_minW, 420);
-                                });
-                              },
-                              onVerticalDragUpdate: (d) {
-                                setState(() {
-                                  _h = (_h + d.delta.dy).clamp(_minH, 640);
-                                });
-                              },
-                              child: Container(
-                                height: 28,
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 10),
-                                child: Icon(
-                                  Icons.drag_handle,
-                                  size: 20,
-                                  color: theme.colorScheme.outline,
                                 ),
                               ),
                             ),
@@ -536,9 +532,9 @@ class _OverlayPanelState extends State<OverlayPanel>
     switch (_page) {
       case 0:
         return ListView(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
           children: [
-            Text('快速操作', style: theme.textTheme.titleMedium),
+            Text('快速操作', style: theme.textTheme.titleSmall),
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -557,12 +553,21 @@ class _OverlayPanelState extends State<OverlayPanel>
                   ),
               ],
             ),
+            const SizedBox(height: 16),
+            Text(
+              '拖动窗口边缘外的区域可移动（系统拖拽）。点标题栏箭头可收起。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
           ],
         );
       case 1:
         return ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           children: [
             ListTile(
+              dense: true,
               leading: const Icon(Icons.notifications_outlined),
               title: const Text('通知'),
               trailing: MorphSwitch(
@@ -571,6 +576,7 @@ class _OverlayPanelState extends State<OverlayPanel>
               ),
             ),
             ListTile(
+              dense: true,
               leading: const Icon(Icons.dark_mode_outlined),
               title: const Text('深色面板'),
               trailing: MorphSwitch(
@@ -579,6 +585,7 @@ class _OverlayPanelState extends State<OverlayPanel>
               ),
             ),
             ListTile(
+              dense: true,
               leading: const Icon(Icons.push_pin_outlined),
               title: const Text('保持前置'),
               trailing: MorphSwitch(
@@ -589,16 +596,24 @@ class _OverlayPanelState extends State<OverlayPanel>
           ],
         );
       default:
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Icon(Icons.layers_rounded,
-                size: 40, color: theme.colorScheme.primary),
-            const SizedBox(height: 8),
-            Text('悬浮窗项目', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text('系统叠加层 · Material 3', style: theme.textTheme.bodySmall),
-          ],
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.layers_rounded,
+                  size: 36, color: theme.colorScheme.primary),
+              const SizedBox(height: 10),
+              Text('悬浮窗项目', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 6),
+              Text(
+                '系统级叠加层 · Material 3\n展开 / 收起动画 · 对号叉号开关',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
         );
     }
   }
